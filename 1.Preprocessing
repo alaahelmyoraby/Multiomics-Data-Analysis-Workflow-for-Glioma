@@ -1,10 +1,6 @@
----
-
 # 🧬 Multi-Omics Data Preprocessing in R
 
 This repository contains R scripts to preprocess **methylation**, **transcriptomics**, and **miRNA** datasets for multi-omics analysis. Each dataset is log-transformed, imputed (if needed), scaled, and exported for downstream tasks like MOFA or clustering.
-
----
 
 ## 📦 Required R Libraries
 
