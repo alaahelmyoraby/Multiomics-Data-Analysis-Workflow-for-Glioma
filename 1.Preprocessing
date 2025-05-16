@@ -1,0 +1,243 @@
+---
+
+# 🧬 Multi-Omics Data Preprocessing in R
+
+This repository contains R scripts to preprocess **methylation**, **transcriptomics**, and **miRNA** datasets for multi-omics analysis. Each dataset is log-transformed, imputed (if needed), scaled, and exported for downstream tasks like MOFA or clustering.
+
+---
+
+## 📦 Required R Libraries
+
+```r
+library(readxl)
+library(minfi)
+library(IlluminaHumanMethylationEPICanno.ilm10b4.hg19)
+library(IlluminaHumanMethylationEPICmanifest)
+library(FlowSorted.Blood.EPIC)
+library(GeneNet)
+library(limma)
+library(GenomicRanges)
+library(data.table)
+library(tidyverse)
+library(zoo)
+library(lattice)
+library(ggplot2)
+library(reshape)
+library(stringr)
+library(RColorBrewer)
+library(mixOmics)
+library(pROC)
+library(biomaRt)
+library(org.Hs.eg.db)
+library(entropy)
+library(impute)
+library(MOFA2)
+```
+
+---
+
+## 📂 Set Working Directory
+
+```r
+setwd("C:/My pc/Egcombio/MODA/final_project")
+```
+
+---
+
+## 📥 Load Data
+
+```r
+epi <- fread(".../Methylation_data/...cct", data.table = FALSE)
+trans <- fread(".../RNAseq/...cct", data.table = FALSE)
+miRNA <- fread(".../miRNA/...txt", data.table = FALSE)
+annotation <- read.delim(".../annotation.txt", row.names = 1)
+```
+
+---
+
+## 🔬 Methylation (EPIC) Data Preprocessing
+```r
+int.mat_epi <- epi
+num.mat_epi = matrix(as.numeric(gsub(",", "", as.matrix(int.mat_epi))),
+                 nrow = nrow(int.mat_epi),
+                 dimnames = dimnames(int.mat_epi))
+varCol_epi=apply(num.mat_epi, 2, var, na.rm = T)
+constCol_epi <- (varCol_epi == 0 | is.na(varCol_epi))
+
+num.mat_epi <- num.mat_epi[, !constCol_epi]
+
+# Compute missingness rate
+nrow(num.mat_epi) * ncol(num.mat_epi)
+sum(is.na(num.mat_epi))
+sum(is.na(num.mat_epi))/(nrow(num.mat_epi) * ncol(num.mat_epi)) *100
+round(sum(is.na(num.mat_epi))/(nrow(num.mat_epi) * ncol(num.mat_epi))*100,1)
+
+missingRatePerepi = (apply(is.na(num.mat_epi), 2, sum)/nrow(num.mat_epi) ) *100
+min(missingRatePerepi)
+max(missingRatePerepi)
+
+# Histogram
+options(repr.plot.width=10,repr.plot.height=8)
+h=hist((apply(is.na(num.mat_epi), 2, sum)/nrow(num.mat_epi) ) *100,breaks=10,
+       main="Histogram for Missingness",
+       xlab="percentage of missingness")
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+abline(v = 50, col = "red", lwd = 3, lty = 2)
+
+# Filter and Impute
+dim(epi)
+good.inx_epi=apply(is.na(num.mat_epi), 2, sum)/nrow(num.mat_epi) <0.5
+num.mat_epi=num.mat_epi[,good.inx_epi]
+rownames(num.mat_epi)=int.mat_epi$attrib_name
+
+imputed_result_epi <- impute.knn(num.mat_epi, k=10)
+num.mat_epi_imputed <- imputed_result_epi$data
+num.mat_epi.imputed.logged <- log2(num.mat_epi_imputed + 1)
+num.mat_epi.imputed.logged.scaled=scale(num.mat_epi.imputed.logged,center = TRUE, scale = TRUE)
+
+# Boxplot
+options(repr.plot.width=10,repr.plot.height=8)
+par(mar = c(8,5,2,2),mfrow=c(1,3))
+boxplot(num.mat_epi[,1:20], main="Before log2" ,horizontal=T, names=colnames(num.mat_epi)[1:20],las=2, col = "lightgreen")
+boxplot(num.mat_epi.imputed.logged[,1:20], main="After log2" ,horizontal=T, names=colnames(num.mat_epi.imputed.logged)[1:20], las=2,col = "lightgreen")
+boxplot(num.mat_epi.imputed.logged.scaled[,1:20], main="After log2 +scaled " ,horizontal=T, names=colnames(num.mat_epi.imputed.logged.scaled)[1:20], las=2,col = "lightgreen")
+
+# Density plot
+options(repr.plot.width=20,repr.plot.height=8)
+par(mar = c(8,5,2,2),mfrow=c(1,3),cex.axis=1.5)
+plot(density(apply(num.mat_epi, 2, mean, na.rm = TRUE)),main='befor log2')
+plot(density(apply(num.mat_epi.imputed.logged, 2, mean, na.rm = TRUE)),main='after log2')
+plot(density(apply(num.mat_epi.imputed.logged.scaled, 2, mean, na.rm = TRUE)),main='after log2 + scaled')
+
+write.csv(num.mat_epi.imputed.logged.scaled,'data_epi.csv')
+head(num.mat_epi.imputed.logged.scaled)
+
+---
+
+## 🧬 Transcriptomics (RNA-seq) Data Preprocessing
+
+```r
+int.mat_trans <- trans
+num.mat_trans <- matrix(as.numeric(gsub(",", "", as.matrix(int.mat_trans))),
+                        nrow = nrow(int.mat_trans),
+                        dimnames = dimnames(int.mat_trans))
+
+varCol_trans <- apply(num.mat_trans, 2, var, na.rm = TRUE)
+constCol_trans <- (varCol_trans == 0 | is.na(varCol_trans))
+num.mat_trans <- num.mat_trans[, !constCol_trans]
+
+# Compute missingness rate
+sum(is.na(num.mat_trans)) / (nrow(num.mat_trans) * ncol(num.mat_trans)) * 100
+
+# Histogram
+options(repr.plot.width = 10, repr.plot.height = 8)
+h <- hist((apply(is.na(num.mat_trans), 2, sum) / nrow(num.mat_trans)) * 100,
+          breaks = 10,
+          main = "Histogram for Missingness",
+          xlab = "Percentage of Missingness")
+text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
+abline(v = 50, col = "red", lwd = 3, lty = 2)
+
+# Filter and Impute
+good.inx_trans <- apply(is.na(num.mat_trans), 2, sum) / nrow(num.mat_trans) < 0.5
+num.mat_trans <- num.mat_trans[, good.inx_trans]
+rownames(num.mat_trans) <- int.mat_trans$attrib_name
+
+imputed_result_trans <- impute.knn(num.mat_trans, k = 10)
+num.mat_trans_imputed <- imputed_result_trans$data
+num.mat_trans.imputed.logged <- log2(num.mat_trans_imputed + 1)
+num.mat_trans.imputed.logged.scaled <- scale(num.mat_trans.imputed.logged, center = TRUE, scale = TRUE)
+
+# Boxplot
+options(repr.plot.width = 10, repr.plot.height = 8)
+par(mar = c(8, 5, 2, 2), mfrow = c(1, 3))
+boxplot(num.mat_trans[, 1:20], main = "Before log2", horizontal = TRUE,
+        names = colnames(num.mat_trans)[1:20], las = 2, col = "lightgreen")
+boxplot(num.mat_trans.imputed.logged[, 1:20], main = "After log2", horizontal = TRUE,
+        names = colnames(num.mat_trans.imputed.logged)[1:20], las = 2, col = "lightgreen")
+boxplot(num.mat_trans.imputed.logged.scaled[, 1:20], main = "After log2 + scaled", horizontal = TRUE,
+        names = colnames(num.mat_trans.imputed.logged.scaled)[1:20], las = 2, col = "lightgreen")
+
+# Density Plot
+options(repr.plot.width = 20, repr.plot.height = 8)
+par(mar = c(8, 5, 2, 2), mfrow = c(1, 3), cex.axis = 1.5)
+plot(density(apply(num.mat_trans, 2, mean, na.rm = TRUE)), main = "Before log2")
+plot(density(apply(num.mat_trans.imputed.logged, 2, mean, na.rm = TRUE)), main = "After log2")
+plot(density(apply(num.mat_trans.imputed.logged.scaled, 2, mean, na.rm = TRUE)), main = "After log2 + scaled")
+
+write.csv(num.mat_trans.imputed.logged.scaled, 'data_trans.csv')
+head(num.mat_trans.imputed.logged.scaled)
+```
+
+📁 Output: `data_trans.csv`
+
+---
+
+## 🧬 miRNA Data Preprocessing
+
+```r
+int.mat_miRNA <- miRNA
+num.mat_miRNA <- matrix(as.numeric(gsub(",", "", as.matrix(int.mat_miRNA))),
+                        nrow = nrow(int.mat_miRNA),
+                        dimnames = dimnames(int.mat_miRNA))
+
+varCol_miRNA <- apply(num.mat_miRNA, 2, var, na.rm = TRUE)
+constCol_miRNA <- (varCol_miRNA == 0 | is.na(varCol_miRNA))
+num.mat_miRNA <- num.mat_miRNA[, !constCol_miRNA]
+
+# Compute missingness rate
+sum(is.na(num.mat_miRNA)) / (nrow(num.mat_miRNA) * ncol(num.mat_miRNA)) * 100
+
+# Histogram
+options(repr.plot.width = 10, repr.plot.height = 8)
+h <- hist((apply(is.na(num.mat_miRNA), 2, sum) / nrow(num.mat_miRNA)) * 100,
+          breaks = 10,
+          main = "Histogram for Missingness",
+          xlab = "Percentage of Missingness")
+text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
+abline(v = 50, col = "red", lwd = 3, lty = 2)
+
+# Filter and Impute
+good.inx_miRNA <- apply(is.na(num.mat_miRNA), 2, sum) / nrow(num.mat_miRNA) < 0.5
+num.mat_miRNA <- num.mat_miRNA[, good.inx_miRNA]
+rownames(num.mat_miRNA) <- int.mat_miRNA$attrib_name
+
+imputed_result_miRNA <- impute.knn(num.mat_miRNA, k = 10)
+num.mat_miRNA_imputed <- imputed_result_miRNA$data
+num.mat_miRNA.imputed.logged <- log2(num.mat_miRNA_imputed + 1)
+num.mat_miRNA.imputed.logged.scaled <- scale(num.mat_miRNA.imputed.logged, center = TRUE, scale = TRUE)
+
+# Boxplot
+options(repr.plot.width = 10, repr.plot.height = 8)
+par(mar = c(8, 5, 2, 2), mfrow = c(1, 3))
+boxplot(num.mat_miRNA[, 1:20], main = "Before log2", horizontal = TRUE,
+        names = colnames(num.mat_miRNA)[1:20], las = 2, col = "lightgreen")
+boxplot(num.mat_miRNA.imputed.logged[, 1:20], main = "After log2", horizontal = TRUE,
+        names = colnames(num.mat_miRNA.imputed.logged)[1:20], las = 2, col = "lightgreen")
+boxplot(num.mat_miRNA.imputed.logged.scaled[, 1:20], main = "After log2 + scaled", horizontal = TRUE,
+        names = colnames(num.mat_miRNA.imputed.logged.scaled)[1:20], las = 2, col = "lightgreen")
+
+# Density Plot
+options(repr.plot.width = 20, repr.plot.height = 8)
+par(mar = c(8, 5, 2, 2), mfrow = c(1, 3), cex.axis = 1.5)
+plot(density(apply(num.mat_miRNA, 2, mean, na.rm = TRUE)), main = "Before log2")
+plot(density(apply(num.mat_miRNA.imputed.logged, 2, mean, na.rm = TRUE)), main = "After log2")
+plot(density(apply(num.mat_miRNA.imputed.logged.scaled, 2, mean, na.rm = TRUE)), main = "After log2 + scaled")
+
+write.csv(num.mat_miRNA.imputed.logged.scaled, 'data_miRNA.csv')
+head(num.mat_miRNA.imputed.logged.scaled)
+```
+
+📁 Output: `data_miRNA.csv`
+
+---
+
+## 📊 Output Files
+
+| File             | Description                             |
+| ---------------- | --------------------------------------- |
+| `data_epi.csv`   | Processed methylation (EPIC array) data |
+| `data_trans.csv` | Processed RNA-seq data                  |
+| `data_miRNA.csv` | Processed miRNA data                    |
+
+---
